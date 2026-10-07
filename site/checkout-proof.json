@@ -1,0 +1,9 @@
+{
+  "verdict": "PASS",
+  "requestedSha": "42697cd273adf617ba17f1562dd68574ef314c1c",
+  "githubResolvedCommitSha": "42697cd273adf617ba17f1562dd68574ef314c1c",
+  "commitTreeSha": "7dc66661d645587382a9bae4f6a5f85226e5c69e",
+  "verifiedBlobCount": 38,
+  "localTreeMatchesRequestedCommit": true,
+  "verifiedAt": "2026-10-07T11:28:15.247Z"
+}
