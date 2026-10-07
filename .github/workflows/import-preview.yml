@@ -48,3 +48,5 @@ jobs:
           git add site
           git commit -m "Publish temporary preview of 42697cd2"
           git push
+
+# trigger import
