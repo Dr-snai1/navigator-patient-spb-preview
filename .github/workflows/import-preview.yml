@@ -1,4 +1,4 @@
-name: Prepare temporary viewing page
+name: Import temporary preview
 
 on:
   push:
@@ -10,35 +10,51 @@ permissions:
   contents: write
 
 jobs:
-  prepare:
+  import:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout temporary preview repo
         uses: actions/checkout@v4
 
-      - name: Prepare GitHub Pages folder
+      - name: Download exact built preview
+        env:
+          PREVIEW_ZIP_URL: 'https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-b330-8210-adbf-a5d6f2d436e9/raw?se=2026-10-07T22%3A10%3A45Z&sp=r&sv=2026-02-06&sr=b&scid=a037a53a-fab7-5b0c-9b3f-c59a145f2232&skoid=e32cbaad-a1eb-4299-9f16-1b364ab43781&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-07T06%3A00%3A16Z&ske=2026-10-08T06%3A00%3A16Z&sks=b&skv=2026-02-06&sig=ZslIeAV7o18MGXGNokw6iS8yZeP88M9vBa9YCi3rjWk%3D'
         run: |
-          rm -rf docs
-          cp -R site docs
-          test -f docs/index.html
-          test -f docs/404.html
+          set -euo pipefail
+          curl -L --fail --retry 3 "$PREVIEW_ZIP_URL" -o /tmp/preview.zip
+          rm -rf site
+          mkdir -p site
+          unzip -q /tmp/preview.zip -d site
+
+      - name: Verify exact version and provenance
+        run: |
           python - <<'PY'
           import json, pathlib
-          expected="42697cd273adf617ba17f1562dd68574ef314c1c"
-          meta=json.loads(pathlib.Path("docs/preview-meta.json").read_text())
-          proof=json.loads(pathlib.Path("docs/checkout-proof.json").read_text())
+          expected="721d173e6a5d052dd9c8193e96e1517612e322b5"
+          expected_tree="cf2298c9a80de1b87c2469acdf5b4c26f08f1633"
+          meta=json.loads(pathlib.Path("site/preview-meta.json").read_text())
+          proof=json.loads(pathlib.Path("site/checkout-proof.json").read_text())
+          assert meta["preview"] is True
+          assert meta["production"] is False
           assert meta["sourceSha"] == expected
+          assert meta["sourceTreeSha"] == expected_tree
           assert proof["requestedSha"] == expected
           assert proof["githubResolvedCommitSha"] == expected
+          assert proof["requestedTreeSha"] == expected_tree
+          assert proof["localHeadSha"] == expected
+          assert proof["localTreeSha"] == expected_tree
           assert proof["localTreeMatchesRequestedCommit"] is True
-          print("Exact preview verified:", expected)
+          assert pathlib.Path("site/index.html").exists()
+          assert pathlib.Path("site/404.html").exists()
+          assert pathlib.Path("site/assets").is_dir()
+          print("Exact E01 preview verified:", expected, expected_tree)
           PY
 
-      - name: Save viewing-page files
+      - name: Save only built preview files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs
+          git add -A site
           git diff --cached --quiet && exit 0
-          git commit -m "Prepare temporary viewing page"
+          git commit -m "Publish temporary preview of 721d173e"
           git push
