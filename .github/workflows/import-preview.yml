@@ -1,0 +1,50 @@
+name: Import temporary preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/import-preview.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout temporary preview repo
+        uses: actions/checkout@v4
+
+      - name: Download exact built preview
+        env:
+          PREVIEW_ZIP_URL: 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-94e8-81f4-b55d-1d1949165402/raw?se=2026-10-07T11%3A35%3A02Z&sp=r&sv=2026-02-06&sr=b&scid=85ffc3ac-e32a-5671-a007-6f86012ffc09&skoid=e32cbaad-a1eb-4299-9f16-1b364ab43781&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-07T02%3A14%3A10Z&ske=2026-10-08T02%3A14%3A10Z&sks=b&skv=2026-02-06&sig=LpoGFZylJuzgVM6VMGxQB7A7zkNVv7NrICspBEhtZWk%3D'
+        run: |
+          curl -L --fail --retry 3 "$PREVIEW_ZIP_URL" -o /tmp/preview.zip
+          rm -rf site
+          mkdir -p site
+          unzip -q /tmp/preview.zip -d site
+
+      - name: Verify exact version
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          expected="42697cd273adf617ba17f1562dd68574ef314c1c"
+          meta=json.loads(pathlib.Path("site/preview-meta.json").read_text())
+          proof=json.loads(pathlib.Path("site/checkout-proof.json").read_text())
+          assert meta["sourceSha"] == expected
+          assert proof["requestedSha"] == expected
+          assert proof["githubResolvedCommitSha"] == expected
+          assert proof["localTreeMatchesRequestedCommit"] is True
+          assert pathlib.Path("site/index.html").exists()
+          assert pathlib.Path("site/404.html").exists()
+          print("Exact preview verified:", expected)
+          PY
+
+      - name: Save only built preview files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site
+          git commit -m "Publish temporary preview of 42697cd2"
+          git push
