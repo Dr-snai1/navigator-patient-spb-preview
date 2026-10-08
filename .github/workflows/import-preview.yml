@@ -1,29 +1,52 @@
-name: Prepare temporary viewing page
+name: T047 publish exact S05 built preview
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/import-preview.yml'
+    paths: ['.github/workflows/import-preview.yml']
 permissions:
   contents: write
 jobs:
-  prepare:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify and retain only built viewing files
+      - name: Import exact compiled viewing files
+        env:
+          ZIP_URL: 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-bfc0-81f4-aa9c-1f741ddba05b/raw?se=2026-10-08T17%3A17%3A30Z&sp=r&sv=2026-02-06&sr=b&scid=9eb37f39-8882-5546-84b1-e6f92cca4fc5&skoid=e32cbaad-a1eb-4299-9f16-1b364ab43781&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-08T12%3A29%3A53Z&ske=2026-10-09T12%3A29%3A53Z&sks=b&skv=2026-02-06&sig=F9ST6Nwdfzt0iSRh5DmTXDXF710cBfzn/XrtJLDdHZw%3D'
         run: |
           set -euo pipefail
+          curl -fL --retry 3 "$ZIP_URL" -o /tmp/preview.zip
+          rm -rf site docs
+          mkdir -p site
+          unzip -q /tmp/preview.zip -d site
           python3 - <<'PY'
-          import json,pathlib
-          for root in ('site','docs'):
-            p=pathlib.Path(root)
-            meta=json.loads((p/'preview-meta.json').read_text())
-            proof=json.loads((p/'checkout-proof.json').read_text())
-            assert meta['preview'] is True and meta['production'] is False
-            assert meta['sourceSha']==proof['requestedSha']
-            assert meta['sourceTreeSha']==proof['localTreeSha']
-            assert proof['localTreeMatchesRequestedCommit'] is True
-            assert (p/'index.html').exists() and (p/'404.html').exists()
-          print('Preview ready on existing main/docs Pages path')
+          import pathlib,json
+          p=pathlib.Path("site")
+          files={str(x.relative_to(p)) for x in p.rglob("*") if x.is_file()}
+          allowed={"index.html","404.html","preview-meta.json","checkout-proof.json"}
+          assert allowed.issubset(files)
+          assert all(x in allowed or x.startswith("assets/") for x in files),files
+          m=json.loads((p/"preview-meta.json").read_text())
+          q=json.loads((p/"checkout-proof.json").read_text())
+          sha="a160d2e154291d2abba4e022d668aed0b0873d14"
+          tree="0319e0b1b9622bdd19adc5a42b96ad4335a8c53c"
+          assert m["preview"] is True and m["production"] is False
+          assert m["sourceSha"]==sha and m["sourceTreeSha"]==tree
+          assert m["checkpoint"]=="baseline-s01-s05-2026-10-08"
+          assert m["tagObject"]=="bb9dc6ee73b15166bc2add2a6ac030ea936a7de6"
+          assert m["basePath"]=="/navigator-patient-spb-preview/"
+          for key in ["requestedSha","githubResolvedCommitSha","localHeadSha"]: assert q[key]==sha
+          for key in ["requestedTreeSha","localTreeSha"]: assert q[key]==tree
+          assert q["localTreeMatchesRequestedCommit"] is True
+          assert "/navigator-patient-spb-preview/assets/" in (p/"index.html").read_text()
+          print("Verified exact compiled checkpoint:",sha,tree,len(files))
           PY
+          cp -a site docs
+      - name: Commit built-only payload
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A site docs
+          git diff --cached --quiet && exit 0
+          git commit -m "Publish S05 QA-approved checkpoint a160d2e"
+          git push
