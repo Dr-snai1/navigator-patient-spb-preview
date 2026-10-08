@@ -2,10 +2,10 @@
   "preview": true,
   "production": false,
   "sourceRepo": "Dr-snai1/navigator-patient-spb",
-  "sourceSha": "a160d2e154291d2abba4e022d668aed0b0873d14",
-  "sourceTreeSha": "0319e0b1b9622bdd19adc5a42b96ad4335a8c53c",
+  "sourceSha": "40f80b4d37d81e7acf36519228d684743648c379",
+  "sourceTreeSha": "830bcb95b0bdcce8d1a49d24aeceede2bbfb68f0",
   "basePath": "/navigator-patient-spb-preview/",
   "pagesRepo": "Dr-snai1/navigator-patient-spb-preview",
-  "checkpoint": "baseline-s01-s05-2026-10-08",
-  "tagObject": "bb9dc6ee73b15166bc2add2a6ac030ea936a7de6"
+  "checkpoint": "baseline-s01-s06-2026-10-08",
+  "tagObject": "2eb6fcb0e1d8a2392765852ac5d3b56ff28ca0af"
 }
