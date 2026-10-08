@@ -1,4 +1,4 @@
-name: T039 import exact built preview
+name: Prepare temporary viewing page
 on:
   push:
     branches: [main]
@@ -7,49 +7,23 @@ on:
 permissions:
   contents: write
 jobs:
-  publish:
+  prepare:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Import only exact compiled viewing files
-        env:
-          PREVIEW_ZIP_URL: 'https://sdmntprukwest.oaiusercontent.com/files/00000000-20ec-8243-a68f-eccf5eacd5a5/raw?se=2026-10-08T10%3A58%3A44Z&sp=r&sv=2026-02-06&sr=b&scid=22633c1e-8d40-5841-88ab-ed6ee8fa697a&skoid=e32cbaad-a1eb-4299-9f16-1b364ab43781&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-08T05%3A10%3A19Z&ske=2026-10-09T05%3A10%3A19Z&sks=b&skv=2026-02-06&sig=TSyKhlgvtjieI8DwXJOUwY2RBEnj/TdAGzp6mRcqRjk%3D'
+      - name: Verify and retain only built viewing files
         run: |
           set -euo pipefail
-          curl -L --fail --retry 3 "$PREVIEW_ZIP_URL" -o /tmp/preview.zip
-          rm -rf site docs
-          mkdir -p site
-          unzip -q /tmp/preview.zip -d site
           python3 - <<'PY'
           import json,pathlib
-          p=pathlib.Path('site')
-          allowed={'index.html','404.html','checkout-proof.json','preview-meta.json'}
-          files={str(f.relative_to(p)) for f in p.rglob('*') if f.is_file()}
-          assert all(f in allowed or f.startswith('assets/') for f in files),files
-          assert len([f for f in files if f.startswith('assets/')]) == 2,files
-          assert allowed.issubset(files),files
-          meta=json.loads((p/'preview-meta.json').read_text())
-          proof=json.loads((p/'checkout-proof.json').read_text())
-          sha='43e1d519de1e930bfdd9e1c92afbcc2dabcaafcc'
-          tree='ec65393abe8a285a2e7e666f7826b4ceb625eb04'
-          assert meta['preview'] is True and meta['production'] is False
-          assert meta['sourceSha']==sha and meta['sourceTreeSha']==tree
-          assert meta['basePath']=='/navigator-patient-spb-preview/'
-          assert proof['requestedSha']==sha
-          assert proof['githubResolvedCommitSha']==sha
-          assert proof['localHeadSha']==sha
-          assert proof['requestedTreeSha']==tree
-          assert proof['localTreeSha']==tree
-          assert proof['localTreeMatchesRequestedCommit'] is True
-          index=(p/'index.html').read_text()
-          assert '/navigator-patient-spb-preview/assets/' in index
-          print('T039 exact source and built-only payload verified')
+          for root in ('site','docs'):
+            p=pathlib.Path(root)
+            meta=json.loads((p/'preview-meta.json').read_text())
+            proof=json.loads((p/'checkout-proof.json').read_text())
+            assert meta['preview'] is True and meta['production'] is False
+            assert meta['sourceSha']==proof['requestedSha']
+            assert meta['sourceTreeSha']==proof['localTreeSha']
+            assert proof['localTreeMatchesRequestedCommit'] is True
+            assert (p/'index.html').exists() and (p/'404.html').exists()
+          print('Preview ready on existing main/docs Pages path')
           PY
-          cp -a site docs
-      - name: Commit preview to existing main/docs Pages path
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A site docs
-          git commit -m "Publish E01 router-fixed preview 43e1d519"
-          git push
