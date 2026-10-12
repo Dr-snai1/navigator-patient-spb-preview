@@ -1,8 +1,9 @@
-name: Verify exact T077 built preview
+name: Verify exact T094 checkpoint compiled preview
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/import-preview.yml']
+    paths: ['docs/**', 'site/**', '.github/workflows/import-preview.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -10,24 +11,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify compiled files in site and docs
+      - name: Validate exact source provenance, compiled payload mirror, and preview-only mode
+        shell: bash
         run: |
           python3 - <<'PY'
-          import json,pathlib
-          for root in ['site','docs']:
-            p=pathlib.Path(root)
+          from pathlib import Path
+          import hashlib,json,re
+          SOURCE='7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91'
+          TREE='b3ceb3822c484569896620e566fc168685a449b0'
+          TAG='baseline-s01-s07-t079-remediation-2026-10-12'
+          TAGOBJ='5381ac562e15061cf3842b6837c07ae0b8c4820c'
+          BASE='/navigator-patient-spb-preview/'
+          manifests=[]
+          all_files=[]
+          for root in ('site','docs'):
+            p=Path(root)
+            files={str(f.relative_to(p)):hashlib.sha256(f.read_bytes()).hexdigest()
+                   for f in p.rglob('*') if f.is_file()}
+            assert files and 'index.html' in files and '404.html' in files,root
+            assert all(x in ('index.html','404.html','preview-meta.json','checkout-proof.json')
+                       or x.startswith('assets/') for x in files),root
+            js=[x for x in files if re.fullmatch(r'assets/index-[a-zA-Z0-9_-]+\.js',x)]
+            css=[x for x in files if re.fullmatch(r'assets/index-[a-zA-Z0-9_-]+\.css',x)]
+            assert len(js)==1 and len(css)==1,(root,js,css)
+            assert files['index.html']==files['404.html'],root
+            html=(p/'index.html').read_text()
+            assert BASE+js[0] in html and BASE+css[0] in html,root
             m=json.loads((p/'preview-meta.json').read_text())
             q=json.loads((p/'checkout-proof.json').read_text())
-            assert m['sourceSha']=='7dc1b5e969c477bde774ae4ed16405ab10ad94c0'
-            assert m['sourceTreeSha']=='8617e6120eb6659adafcb0501ca3ea7a221b60d7'
-            assert m['checkpoint']=='baseline-s01-s07-no-q701-2026-10-09'
-            assert m['tagObject']=='71b70dc100e4bd5d4f5f3307b3abc4a5b0b46b94'
-            assert m['basePath']=='/navigator-patient-spb-preview/'
             assert m['preview'] is True and m['production'] is False
-            assert q['localHeadSha']==m['sourceSha'] and q['localTreeSha']==m['sourceTreeSha']
-            assert q['localTreeMatchesRequestedCommit']
-            files=[str(x.relative_to(p)) for x in p.rglob('*') if x.is_file()]
-            assert all(x in ['index.html','404.html','preview-meta.json','checkout-proof.json'] or x.startswith('assets/') for x in files)
-            assert (p/'404.html').exists()
-          print('T077 no-Q701 compiled payload PASS')
+            assert m['sourceRepo']=='Dr-snai1/navigator-patient-spb'
+            assert m['pagesRepo']=='Dr-snai1/navigator-patient-spb-preview'
+            assert m['sourceSha']==SOURCE and m['sourceTreeSha']==TREE
+            assert m['basePath']==BASE and m['checkpoint']==TAG and m['tagObject']==TAGOBJ
+            assert q['requestedSha']==q['githubResolvedCommitSha']==q['localHeadSha']==SOURCE
+            assert q['requestedTreeSha']==q['localTreeSha']==TREE
+            assert q['localTreeMatchesRequestedCommit'] is True
+            assert q['tagObject']==TAGOBJ
+            manifests.append((m,q))
+            all_files.append(files)
+          assert all_files[0]==all_files[1],'site and docs have different compiled bytes'
+          assert manifests[0]==manifests[1],'site and docs have different source proof'
+          print('T094_COMPILED_PROVENANCE_PASS files=',len(all_files[0]),
+                'source=',SOURCE,'tree=',TREE,'tagObject=',TAGOBJ)
           PY
