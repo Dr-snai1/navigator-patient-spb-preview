@@ -1,8 +1,10 @@
 {
-  "requestedSha": "7dc1b5e969c477bde774ae4ed16405ab10ad94c0",
-  "githubResolvedCommitSha": "7dc1b5e969c477bde774ae4ed16405ab10ad94c0",
-  "localHeadSha": "7dc1b5e969c477bde774ae4ed16405ab10ad94c0",
-  "requestedTreeSha": "8617e6120eb6659adafcb0501ca3ea7a221b60d7",
-  "localTreeSha": "8617e6120eb6659adafcb0501ca3ea7a221b60d7",
-  "localTreeMatchesRequestedCommit": true
+  "requestedSha": "7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91",
+  "githubResolvedCommitSha": "7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91",
+  "localHeadSha": "7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91",
+  "requestedTreeSha": "b3ceb3822c484569896620e566fc168685a449b0",
+  "localTreeSha": "b3ceb3822c484569896620e566fc168685a449b0",
+  "localTreeMatchesRequestedCommit": true,
+  "tagObject": "5381ac562e15061cf3842b6837c07ae0b8c4820c",
+  "checkoutWorkflowRunId": "38312227349"
 }
