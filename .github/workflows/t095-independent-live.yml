@@ -1,0 +1,39 @@
+name: T095 independent public beta LIVE QA (read-only)
+on:
+  push:
+    branches: [qa/t095-independent-live]
+permissions:
+  contents: read
+jobs:
+  public-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout independent QA-only auxiliary branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm this is auxiliary-only and never deploy
+        shell: bash
+        run: |
+          test "${GITHUB_REF#refs/heads/}" = "qa/t095-independent-live"
+          test "$(git rev-list --count 2d53caa63f5495c37b66929fb002bc65747ba3cf..HEAD)" -ge 1
+          git diff --name-only 2d53caa63f5495c37b66929fb002bc65747ba3cf HEAD
+          test -z "$(git diff --name-only 2d53caa63f5495c37b66929fb002bc65747ba3cf HEAD -- docs site)"
+      - name: Setup pinned Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Install temporary browser test driver only
+        run: |
+          npm install --prefix "$RUNNER_TEMP/t095-pw" playwright@1.55.0 --no-package-lock --no-audit --no-fund
+          "$RUNNER_TEMP/t095-pw/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Independent live desktop/mobile patient contract and complete citywide maps
+        run: NODE_PATH="$RUNNER_TEMP/t095-pw/node_modules" node .github/qa/t095-live.cjs
+      - name: Upload independent public beta browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t095-independent-live-evidence
+          path: t095-evidence
+          if-no-files-found: warn
