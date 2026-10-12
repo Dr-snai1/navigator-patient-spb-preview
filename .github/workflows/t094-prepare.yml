@@ -1,0 +1,147 @@
+name: T094 prepare exact-checkpoint preview candidate
+on:
+  push:
+    branches: ['ops/t094-prepare']
+    paths: ['.github/workflows/t094-prepare.yml']
+permissions:
+  contents: write
+jobs:
+  compile-verify-and-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: '7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91'
+      SOURCE_TREE: 'b3ceb3822c484569896620e566fc168685a449b0'
+      TAG_NAME: 'baseline-s01-s07-t079-remediation-2026-10-12'
+      TAG_OBJECT: '5381ac562e15061cf3842b6837c07ae0b8c4820c'
+      OLD_PREVIEW: 'dedc0551a4b0e3e5dab6334b5936b886c8e8f56a'
+      PREVIEW_BASE: '/navigator-patient-spb-preview/'
+    steps:
+      - name: Checkout isolated deployment preparation files
+        uses: actions/checkout@v4
+        with:
+          path: release-ops
+          persist-credentials: false
+      - name: Checkout ONLY approved source commit
+        uses: actions/checkout@v4
+        with:
+          repository: Dr-snai1/navigator-patient-spb
+          ref: '7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91'
+          path: source
+          persist-credentials: false
+      - name: Verify exact source commit, tree, annotated tag and current upstream main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          test -z "$(git -C source status --porcelain)"
+          test "$(git -C source ls-remote origin refs/heads/main | cut -f1)" = "$SOURCE_SHA"
+          test "$(git -C source ls-remote origin "refs/tags/$TAG_NAME" | cut -f1)" = "$TAG_OBJECT"
+          test "$(git -C source ls-remote origin "refs/tags/$TAG_NAME^{}" | cut -f1)" = "$SOURCE_SHA"
+          echo "T094_SOURCE_TAG_PROOF_PASS source=$SOURCE_SHA tree=$SOURCE_TREE tagObject=$TAG_OBJECT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Pin npm 11.19.1 with no peer bypass
+        run: |
+          npm install --global npm@11.19.1 --no-audit --no-fund
+          test "$(npm --version)" = "11.19.1"
+      - name: Clean install exact checkpoint dependencies
+        working-directory: source
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck exact source
+        working-directory: source
+        run: npm run typecheck
+      - name: S01 baseline
+        working-directory: source
+        run: npm test -- -t S01
+      - name: Full S01-S07 regression
+        working-directory: source
+        run: npm test
+      - name: Compile only GitHub Pages beta subpath
+        working-directory: source
+        run: npm run build -- --base=/navigator-patient-spb-preview/
+      - name: Checkout current preview main without modifying source
+        uses: actions/checkout@v4
+        with:
+          repository: Dr-snai1/navigator-patient-spb-preview
+          ref: main
+          path: preview
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Assert exact previous preview and strict rollback parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C preview rev-parse HEAD)" = "$OLD_PREVIEW"
+          test "$(git -C preview ls-remote origin refs/heads/main | cut -f1)" = "$OLD_PREVIEW"
+          test -z "$(git -C preview status --porcelain)"
+          if git -C preview ls-remote origin refs/heads/preview/t094-candidate | grep -q .; then
+            echo "T094 candidate branch already exists" >&2
+            exit 1
+          fi
+          echo "T094_ROLLBACK_PARENT=$OLD_PREVIEW"
+      - name: Construct mirror site/docs and checkpoint proofs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,shutil,subprocess
+          from pathlib import Path
+          source=Path('source/dist')
+          assert (source/'index.html').is_file()
+          assert len(list((source/'assets').glob('*.js')))==1
+          assert len(list((source/'assets').glob('*.css')))==1
+          head=subprocess.check_output(['git','-C','source','rev-parse','HEAD'],text=True).strip()
+          tree=subprocess.check_output(['git','-C','source','rev-parse','HEAD^{tree}'],text=True).strip()
+          assert head==os.environ['SOURCE_SHA'] and tree==os.environ['SOURCE_TREE']
+          meta={'preview':True,'production':False,'sourceRepo':'Dr-snai1/navigator-patient-spb',
+                'sourceSha':head,'sourceTreeSha':tree,'basePath':os.environ['PREVIEW_BASE'],
+                'pagesRepo':'Dr-snai1/navigator-patient-spb-preview',
+                'checkpoint':os.environ['TAG_NAME'],'tagObject':os.environ['TAG_OBJECT'],
+                'publishTask':'T094','buildWorkflowRunId':os.environ['GITHUB_RUN_ID']}
+          proof={'requestedSha':head,'githubResolvedCommitSha':head,'localHeadSha':head,
+                 'requestedTreeSha':tree,'localTreeSha':tree,
+                 'localTreeMatchesRequestedCommit':True,'tagObject':os.environ['TAG_OBJECT'],
+                 'checkoutWorkflowRunId':os.environ['GITHUB_RUN_ID']}
+          for root in ('site','docs'):
+            path=Path('preview')/root
+            if path.exists():shutil.rmtree(path)
+            shutil.copytree(source,path)
+            shutil.copy2(path/'index.html',path/'404.html')
+            (path/'preview-meta.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)+'\n')
+            (path/'checkout-proof.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n')
+          shutil.copy2('release-ops/.github/workflows/import-preview.yml',
+                       'preview/.github/workflows/import-preview.yml')
+          data=lambda p:{str(x.relative_to(p)):x.read_bytes() for x in p.rglob('*') if x.is_file()}
+          assert data(Path('preview/site'))==data(Path('preview/docs'))
+          Path('build-report.json').write_text(json.dumps(
+              {'sourceSha':head,'sourceTreeSha':tree,'tagObject':os.environ['TAG_OBJECT'],
+               'previousPreviewSha':os.environ['OLD_PREVIEW'],'basePath':os.environ['PREVIEW_BASE'],
+               'buildRunId':os.environ['GITHUB_RUN_ID'],
+               'typecheck':'PASS','s01Baseline':'PASS','fullRegression':'PASS','build':'PASS'},indent=2))
+          print('T094_COMPILED_MIRROR_READY')
+          PY
+      - name: Commit candidate only; DO NOT publish main yet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C preview config user.name 'github-actions[bot]'
+          git -C preview config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C preview add -A -- site docs .github/workflows/import-preview.yml
+          git -C preview diff --cached --quiet && exit 1
+          git -C preview commit -m "preview(t094): compiled S01-S07 exact checkpoint beta candidate"
+          test "$(git -C preview rev-parse HEAD^)" = "$OLD_PREVIEW"
+          echo "T094_PREVIEW_CANDIDATE_SHA=$(git -C preview rev-parse HEAD)"
+          git -C preview push origin HEAD:refs/heads/preview/t094-candidate
+          echo "T094_CANDIDATE_ONLY_NOT_LIVE=PASS"
+      - name: Archive reproducible compiled payload and build report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t094-build-artifact
+          path: |
+            source/dist/
+            build-report.json
+          if-no-files-found: warn
