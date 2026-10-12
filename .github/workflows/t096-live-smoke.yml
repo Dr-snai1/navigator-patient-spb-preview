@@ -1,0 +1,121 @@
+name: T096 beta published technical smoke
+on:
+  push:
+    branches: ['ops/t096-live-smoke']
+    paths: ['.github/workflows/t096-live-smoke.yml']
+permissions:
+  contents: read
+jobs:
+  technical-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Install isolated Playwright
+        run: |
+          mkdir -p /tmp/t096-live
+          npm install --prefix /tmp/t096-live playwright@1.56.1 --no-audit --no-fund
+      - name: Verify published beta provenance and desktop/mobile UX
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cat >/tmp/t096-live/smoke.cjs <<'NODE'
+          const fs=require('fs'),assert=require('assert/strict'),{chromium}=require('playwright');
+          const base='https://dr-snai1.github.io/navigator-patient-spb-preview/';
+          const source='598da0e06a61e8dead223027b976e8a646b4cd4e';
+          const tree='a31a6b9de8dac5a9a03df9c7b7bcad680cb92dff';
+          const tag='baseline-s01-s07-t096-unified-ux-2026-10-13';
+          const object='5085795129ffb438b3ec1e75d386a41e8320c308';
+          const report={task:'T096 beta live technical smoke',source,tree,tag,tagObject:object,checks:[],errors:[],browsers:[]};
+          const check=(label,ok)=>{report.checks.push({label,pass:!!ok});if(!ok)report.errors.push(label);};
+          const save=()=>{report.passed=report.checks.filter(x=>x.pass).length;report.total=report.checks.length;fs.writeFileSync('evidence/report.json',JSON.stringify(report,null,2));};
+          async function readJson(file){const r=await fetch(base+file+'?nocache='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error(file+' HTTP '+r.status);return r.json();}
+          async function waitLive(){for(let i=0;i<75;i++){try{const m=await readJson('preview-meta.json');if(m.sourceSha===source&&m.tagObject===object)return m;}catch{}await new Promise(r=>setTimeout(r,4000));}throw Error('New beta release not live');}
+          async function start(p,n){await p.goto(base);await p.locator('button').filter({hasText:'Построить маршрут'}).nth(n).click();}
+          async function district(p,d){
+            const input=p.locator('[data-testid="attachment-picker"] input[role="combobox"]').first();
+            for(let n=0;n<4;n++){
+              await input.click();await input.fill(d);
+              const o=p.locator('[data-testid="attachment-picker"]').getByRole('option',{name:d,exact:true});
+              if(await o.count()){await o.click();return;}
+              await p.waitForTimeout(130);
+            }
+            throw Error('District not selectable: '+d);
+          }
+          async function clinic(p,q,match){
+            const box=p.locator('[data-testid="attachment-picker"]');
+            await box.getByRole('combobox').nth(1).fill(q);
+            await box.getByRole('option').filter({hasText:match}).first().click();
+          }
+          async function show(p){await p.getByRole('button',{name:'Показать маршрут'}).click();return p.locator('main').innerText();}
+          async function screenshot(p,name){await p.screenshot({path:'evidence/'+name+'.png',fullPage:true});}
+          (async()=>{
+            const m=await waitLive(),q=await readJson('checkout-proof.json');
+            check('exact source SHA',m.sourceSha===source&&q.localHeadSha===source);
+            check('exact source Git tree',m.sourceTreeSha===tree&&q.localTreeSha===tree);
+            check('exact annotated tag object',m.tagObject===object&&q.tagObject===object&&m.checkpoint===tag);
+            check('preview only, never production',m.preview===true&&m.production===false&&m.basePath==='/navigator-patient-spb-preview/');
+            const html=await (await fetch(base+'?nocache='+Date.now(),{cache:'no-store'})).text();
+            check('new compiled JS referenced',html.includes('assets/index-D9HPiFi5.js'));
+            check('new compiled CSS referenced',html.includes('assets/index-BhPlxKaF.css'));
+            for(const asset of ['assets/index-D9HPiFi5.js','assets/index-BhPlxKaF.css'])
+              check('asset HTTP 200 '+asset,(await fetch(base+asset,{cache:'no-store'})).status===200);
+            const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',headless:true,args:['--no-sandbox']});
+            try{
+              for(const [mode,width,height] of [['desktop',1440,960],['mobile',390,844]]){
+                const p=await browser.newPage({viewport:{width,height}});p.setDefaultTimeout(12000);
+                const errors=[];p.on('pageerror',e=>errors.push(e.message));
+                try{
+                  await start(p,0);
+                  const group=p.locator('[data-testid="attachment-picker"]');
+                  check(mode+' shared attachment picker present',await group.count()===1);
+                  check(mode+' no default clinic',await group.getByRole('combobox').nth(1).isDisabled());
+                  await district(p,'Приморский');await clinic(p,'49','Городская поликлиника №49');
+                  check(mode+' search number 49', (await group.getByRole('combobox').nth(1).inputValue()).includes('49'));
+                  await district(p,'Выборгский');
+                  check(mode+' clinic cleared on district change',(await group.getByRole('combobox').nth(1).inputValue())==='');
+                  let t=await show(p);
+                  check(mode+' visible important notes',t.includes('Важно')&&t.includes('178-ФЗ'));
+                  check(mode+' no patient enum leaks',!t.includes('UNRESOLVED')&&!t.includes('SERVICE_POINT'));
+                  await screenshot(p,mode+'-s01');
+                  await p.getByRole('button',{name:/Подробности и источники/}).first().click();
+                  check(mode+' details and normative sources',await p.getByRole('button',{name:'Нормативное основание'}).count()===1);
+                  await start(p,4);
+                  await p.locator('button[role="combobox"]').first().click();
+                  await p.getByRole('option',{name:'Да',exact:true}).click();
+                  await district(p,'Приморский');await clinic(p,'128','128');
+                  t=await show(p);
+                  check(mode+' S05 organization only',t.includes('Адрес учреждения')&&t.includes('Место и запись уточните'));
+                  await screenshot(p,mode+'-s05');
+                  await start(p,6);
+                  await p.locator('button[role="combobox"]').first().click();
+                  await p.getByRole('option',{name:'Да, уже выписан(а)',exact:true}).click();
+                  check(mode+' S07 conditional attachment',await p.locator('[data-testid="attachment-picker"]').count()===1);
+                  t=await show(p);
+                  check(mode+' S07 visible important',t.includes('Важно'));
+                  for(const route of ['privacy','limitations','contacts']){
+                    await p.goto(base+route);await p.reload();
+                    check(mode+' '+route+' direct and reload',await p.locator('main').count()===1);
+                  }
+                  check(mode+' no horizontal overflow',await p.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth));
+                  check(mode+' zero JS errors',errors.length===0);
+                  report.browsers.push({mode,width,height,errors});
+                }finally{await p.close();}
+              }
+            }finally{await browser.close();}
+            save();
+            if(report.errors.length)throw Error('Failed: '+report.errors.join('; '));
+            console.log('T096_LIVE_TECHNICAL_PASS '+report.passed+'/'+report.total);
+          })().catch(e=>{report.errors.push(String(e.stack||e));save();console.error(e);process.exitCode=1;});
+          NODE
+          node /tmp/t096-live/smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t096-beta-technical-desktop-mobile
+          path: evidence/
+          if-no-files-found: warn
