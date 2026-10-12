@@ -1,0 +1,122 @@
+name: T094 published beta desktop-mobile browser verification
+on:
+  push:
+    branches: ['ops/t094-live-smoke']
+    paths: ['.github/workflows/t094-live-smoke.yml']
+permissions:
+  contents: read
+jobs:
+  live-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Install temporary Playwright for public live smoke
+        run: |
+          mkdir -p /tmp/t094-pw
+          cd /tmp/t094-pw
+          npm init -y
+          npm install playwright@1.56.1 --no-audit --no-fund
+      - name: Verify live checkpoint, routes, desktop/mobile and errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cat >/tmp/t094-pw/check.cjs <<'NODE'
+          const fs=require('fs'),assert=require('assert/strict'),{chromium}=require('playwright');
+          const base='https://dr-snai1.github.io/navigator-patient-spb-preview/';
+          const source='7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91';
+          const tree='b3ceb3822c484569896620e566fc168685a449b0';
+          const tag='baseline-s01-s07-t079-remediation-2026-10-12';
+          const object='5381ac562e15061cf3842b6837c07ae0b8c4820c';
+          const report={task:'T094',previewUrl:base,source,tree,tag,tagObject:object,checks:[],errors:[],profiles:[]};
+          function check(label,ok){report.checks.push({label,pass:!!ok});if(!ok)report.errors.push(label);}
+          function save(){report.passed=report.checks.filter(c=>c.pass).length;report.total=report.checks.length;fs.writeFileSync('evidence/report.json',JSON.stringify(report,null,2));}
+          async function readJson(file){const r=await fetch(base+file+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error(file+' HTTP '+r.status);return r.json();}
+          async function waitForPublic(){for(let i=0;i<90;i++){try{let m=await readJson('preview-meta.json');if(m.sourceSha===source&&m.tagObject===object)return m;}catch(e){}await new Promise(r=>setTimeout(r,4000));}throw Error('Pages deployment did not serve expected checkpoint within polling window');}
+          async function combo(p,n,label){await p.locator('button[role="combobox"]').nth(n).click();await p.getByRole('option',{name:label,exact:true}).click();}
+          async function attach(p,n,district){await p.locator('button[role="combobox"]').nth(n).click();await p.getByRole('option').filter({hasText:district+' — '}).first().click();}
+          async function start(p,n){await p.goto(base);await p.locator('button').filter({hasText:'Построить маршрут'}).nth(n).click();}
+          async function route(p){await p.getByRole('button',{name:'Показать маршрут'}).click();return p.locator('main').innerText();}
+          async function shot(p,name){await p.screenshot({path:'evidence/'+name+'.png',fullPage:true});}
+          (async()=>{
+            const m=await waitForPublic(),q=await readJson('checkout-proof.json');
+            check('live exact source',m.sourceSha===source&&q.localHeadSha===source&&q.githubResolvedCommitSha===source);
+            check('live exact tree',m.sourceTreeSha===tree&&q.localTreeSha===tree&&q.localTreeMatchesRequestedCommit===true);
+            check('live exact annotated tag',m.tagObject===object&&q.tagObject===object&&m.checkpoint===tag);
+            check('beta only',m.preview===true&&m.production===false&&m.basePath==='/navigator-patient-spb-preview/');
+            const pageResponse=await fetch(base+'?t='+Date.now(),{cache:'no-store'});
+            const html=await pageResponse.text();
+            check('live HTML uses new JS asset',pageResponse.ok&&html.includes('assets/index-B7g80jpm.js'));
+            check('live HTML uses new CSS asset',html.includes('assets/index-B0pL2ar1.css'));
+            for(const asset of ['assets/index-B7g80jpm.js','assets/index-B0pL2ar1.css']){
+              const r=await fetch(base+asset,{cache:'no-store'});
+              check('asset HTTP 200 '+asset,r.status===200);
+            }
+            const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',headless:true,args:['--no-sandbox']});
+            try{
+              for(const [profile,width,height] of [['desktop',1440,960],['mobile',390,844]]){
+                const p=await browser.newPage({viewport:{width,height}});p.setDefaultTimeout(12000);
+                const errors=[];p.on('pageerror',e=>errors.push(e.message));
+                try{
+                  await p.goto(base);
+                  check(profile+' seven scenarios',await p.locator('button').filter({hasText:'Построить маршрут'}).count()===7);
+                  check(profile+' preview beta label',/beta\s*\/\s*github pages preview/i.test(await p.locator('main').textContent()));
+                  await start(p,0);let t=await route(p);
+                  check(profile+' S01 178-FZ caveat',t.includes('178-ФЗ')&&t.includes('иных льготных оснований'));
+                  await shot(p,profile+'-s01');
+                  await start(p,3);t=await route(p);
+                  check(profile+' S04 178-FZ caveat',t.includes('178-ФЗ')&&t.includes('иных льготных оснований'));
+                  await start(p,1);await combo(p,1,'Только рекомендовали обратиться, направление не оформлено');
+                  t=await route(p);
+                  check(profile+' S02 no referral choice',!t.includes('организаций в нормативном перечне'));
+                  await start(p,1);await combo(p,2,'Да');await attach(p,3,'Выборгский');t=await route(p);
+                  check(profile+' S02 INR attached MO',t.includes('Городской консультативно-диагностический центр №1')&&t.includes('Адрес медицинской организации'));
+                  await shot(p,profile+'-s02');
+                  await start(p,2);await combo(p,2,'Только рекомендовали обратиться, направление не оформлено');t=await route(p);
+                  check(profile+' S03 no referral choice',!t.includes('организаций в нормативном перечне'));
+                  await start(p,2);await combo(p,2,'Да, направление оформлено');t=await route(p);
+                  check(profile+' S03 8 unranked',t.includes('8 организаций в нормативном перечне'));
+                  await p.getByRole('button',{name:'Подробнее'}).last().click();
+                  check(profile+' S03 no ordered list',await p.locator('main ol').count()===0);
+                  check(profile+' S03 eight list members',await p.locator('main ul li').count()===8);
+                  await shot(p,profile+'-s03');
+                  await start(p,4);await combo(p,0,'Да');t=await route(p);
+                  check(profile+' S05 unknown attachment no org',!t.includes('Адрес медицинской организации'));
+                  await start(p,4);await combo(p,0,'Да');await attach(p,1,'Колпинский');t=await route(p);
+                  check(profile+' S05 organization only',t.includes('Госпиталь для ветеранов войн')&&t.includes('Адрес медицинской организации'));
+                  await shot(p,profile+'-s05');
+                  await start(p,5);await combo(p,0,'Да, направление оформлено');await attach(p,1,'Приморский');t=await route(p);
+                  check(profile+' S06 organization only',t.includes('Городской консультативно-диагностический центр №1')&&t.includes('Адрес медицинской организации'));
+                  check(profile+' S06 no service-point CTA',!t.includes('Конкретная точка'));
+                  await shot(p,profile+'-s06');
+                  await start(p,6);
+                  check(profile+' S07 no Q701',await p.getByText(/Врач или стационар подтвердили, что вы перенесли инсульт/).count()===0);
+                  check(profile+' S07 first question after scope',await p.getByText('Вы уже выписаны из стационара после этого инсульта?',{exact:true}).count()===1);
+                  await shot(p,profile+'-s07');
+                  for(const part of ['privacy','limitations','contacts']){
+                    await p.goto(base+part,{waitUntil:'domcontentloaded'});
+                    await p.reload({waitUntil:'domcontentloaded'});
+                    check(profile+' '+part+' direct+reload',await p.locator('main').count()===1);
+                    await shot(p,profile+'-'+part);
+                  }
+                  check(profile+' no overflow',await p.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth));
+                  check(profile+' no JS errors',errors.length===0);
+                  report.profiles.push({profile,width,height,jsErrors:errors});
+                }finally{await p.close();}
+              }
+            }finally{await browser.close();}
+            save();if(report.errors.length)throw Error('Failed checks: '+report.errors.join('; '));
+            console.log('T094_LIVE_TECHNICAL_PASS '+report.passed+'/'+report.total);
+          })().catch(e=>{report.errors.push(String(e.stack||e));save();console.error(e);process.exitCode=1;});
+          NODE
+          node /tmp/t094-pw/check.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t094-live-desktop-mobile
+          path: evidence/
+          if-no-files-found: warn
