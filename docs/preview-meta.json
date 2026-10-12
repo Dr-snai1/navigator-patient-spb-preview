@@ -2,12 +2,12 @@
   "preview": true,
   "production": false,
   "sourceRepo": "Dr-snai1/navigator-patient-spb",
-  "sourceSha": "7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91",
-  "sourceTreeSha": "b3ceb3822c484569896620e566fc168685a449b0",
+  "sourceSha": "598da0e06a61e8dead223027b976e8a646b4cd4e",
+  "sourceTreeSha": "a31a6b9de8dac5a9a03df9c7b7bcad680cb92dff",
   "basePath": "/navigator-patient-spb-preview/",
   "pagesRepo": "Dr-snai1/navigator-patient-spb-preview",
-  "checkpoint": "baseline-s01-s07-t079-remediation-2026-10-12",
-  "tagObject": "5381ac562e15061cf3842b6837c07ae0b8c4820c",
-  "publishTask": "T094",
-  "buildWorkflowRunId": "38312227349"
+  "checkpoint": "baseline-s01-s07-t096-unified-ux-2026-10-13",
+  "tagObject": "5085795129ffb438b3ec1e75d386a41e8320c308",
+  "publishTask": "T096",
+  "buildWorkflowRunId": "38323828768"
 }

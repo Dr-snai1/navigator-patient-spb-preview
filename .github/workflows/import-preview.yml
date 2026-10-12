@@ -1,4 +1,4 @@
-name: Verify exact T094 checkpoint compiled preview
+name: Verify exact T096 checkpoint compiled preview
 on:
   push:
     branches: [main]
@@ -17,10 +17,10 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import hashlib,json,re
-          SOURCE='7e9725a443afa4c1e6e4c603d65d7faa0ccf1e91'
-          TREE='b3ceb3822c484569896620e566fc168685a449b0'
-          TAG='baseline-s01-s07-t079-remediation-2026-10-12'
-          TAGOBJ='5381ac562e15061cf3842b6837c07ae0b8c4820c'
+          SOURCE='598da0e06a61e8dead223027b976e8a646b4cd4e'
+          TREE='a31a6b9de8dac5a9a03df9c7b7bcad680cb92dff'
+          TAG='baseline-s01-s07-t096-unified-ux-2026-10-13'
+          TAGOBJ='5085795129ffb438b3ec1e75d386a41e8320c308'
           BASE='/navigator-patient-spb-preview/'
           manifests=[]
           all_files=[]
@@ -52,6 +52,6 @@ jobs:
             all_files.append(files)
           assert all_files[0]==all_files[1],'site and docs have different compiled bytes'
           assert manifests[0]==manifests[1],'site and docs have different source proof'
-          print('T094_COMPILED_PROVENANCE_PASS files=',len(all_files[0]),
+          print('T096_COMPILED_PROVENANCE_PASS files=',len(all_files[0]),
                 'source=',SOURCE,'tree=',TREE,'tagObject=',TAGOBJ)
           PY
